@@ -565,6 +565,7 @@ if __name__ == "__main__":
 from flask import Flask
 import threading
 import os
+import time
 
 # Создаем Flask приложение для health checks
 app = Flask(__name__)
@@ -579,29 +580,35 @@ def health():
 
 def run_flask_app():
     port = int(os.environ.get("PORT", 10000))
+    print(f"✅ Starting Flask health server on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
 
 # === ЗАПУСК ПРИЛОЖЕНИЯ ===
 if __name__ == "__main__":
+    print("🔄 Initializing bot...")
+    
+    # Ждем немного чтобы старые процессы завершились
+    time.sleep(5)
+    
+    # ОЧИСТКА WEBHOOK - КРИТИЧЕСКИ ВАЖНО!
+    try:
+        bot.remove_webhook()
+        print("✅ Webhook cleared")
+    except Exception as e:
+        print(f"ℹ️ Webhook clear warning: {e}")
+    
     # Запускаем Flask в отдельном потоке
     flask_thread = threading.Thread(target=run_flask_app, daemon=True)
     flask_thread.start()
     
-    print("✅ Health server started with Flask")
-    print("✅ Bot starting...")
-    # В конце файла, перед запуском бота:
-if __name__ == "__main__":
-    # Запускаем Flask в отдельном потоке
-    flask_thread = threading.Thread(target=run_flask_app, daemon=True)
-    flask_thread.start()
+    print("✅ Health server started")
+    print("✅ Starting bot polling...")
     
-    print("✅ Health server started with Flask")
-    
-    # ОЧИСТКА WEBHOOK - важно для избежания конфликтов!
-    bot.remove_webhook()
-    print("✅ Webhook cleared")
-    
-    print("✅ Bot starting...")
-    bot.infinity_polling()
-    # Запускаем бота
-    bot.infinity_polling()
+    # Запускаем бота с обработкой ошибок
+    try:
+        bot.infinity_polling()
+    except Exception as e:
+        print(f"❌ Bot error: {e}")
+        print("🔄 Restarting in 10 seconds...")
+        time.sleep(10)
+        bot.infinity_polling()
