@@ -589,6 +589,19 @@ if __name__ == "__main__":
     
     print("✅ Health server started with Flask")
     print("✅ Bot starting...")
+    # В конце файла, перед запуском бота:
+if __name__ == "__main__":
+    # Запускаем Flask в отдельном потоке
+    flask_thread = threading.Thread(target=run_flask_app, daemon=True)
+    flask_thread.start()
     
+    print("✅ Health server started with Flask")
+    
+    # ОЧИСТКА WEBHOOK - важно для избежания конфликтов!
+    bot.remove_webhook()
+    print("✅ Webhook cleared")
+    
+    print("✅ Bot starting...")
+    bot.infinity_polling()
     # Запускаем бота
     bot.infinity_polling()
