@@ -507,7 +507,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-type', 'text/html')
         self.end_headers()
-        self.wfile.write(b"🎨 Paint Stock Bot is running!")
+        self.wfile.write("🎨 Paint Stock Bot is running!".encode('utf-8'))
     
     def log_message(self, format, *args):
         return  # Отключаем логи
