@@ -526,3 +526,39 @@ if __name__ == "__main__":
     
     print("✅ Bot starting with health server...")
     bot.infinity_polling()
+import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write("🎨 Paint Stock Bot is running!".encode('utf-8'))
+    
+    def log_message(self, format, *args):
+        return  # Отключаем логи
+
+def start_health_server():
+    try:
+        port = int(os.environ.get("PORT", 10000))
+        server = HTTPServer(('0.0.0.0', port), HealthHandler)
+        print(f"✅ Health server started on port {port}")
+        server.serve_forever()
+    except Exception as e:
+        print(f"❌ Health server error: {e}")
+
+# === ЗАПУСК ===
+if __name__ == "__main__":
+    # Запускаем health server в отдельном потоке
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+    
+    print("✅ Bot starting with health server...")
+    
+    # Запускаем бота
+    try:
+        bot.infinity_polling()
+    except Exception as e:
+        print(f"❌ Bot error: {e}")
