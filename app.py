@@ -494,3 +494,35 @@ if __name__ == '__main__':
             logger.error(f"❌ Ошибка polling: {e}")
             logger.info("🔄 Перезапуск через 15 секунд...")
             time.sleep(15)
+# ... весь ваш существующий код бота ...
+
+# === ДОБАВЬТЕ ЭТОТ КОД В КОНЕЦ ФАЙЛА ===
+
+import os
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
+
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b"🎨 Paint Stock Bot is running!")
+    
+    def log_message(self, format, *args):
+        return  # Отключаем логи
+
+def start_health_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    print(f"✅ Health server started on port {port}")
+    server.serve_forever()
+
+# Заменяем существующий запуск бота
+if __name__ == "__main__":
+    # Запускаем health server в отдельном потоке
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+    
+    print("✅ Bot starting with health server...")
+    bot.infinity_polling()
