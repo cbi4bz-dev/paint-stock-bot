@@ -563,52 +563,59 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ Bot error: {e}")
 from flask import Flask
-import threading
 import os
+import threading
 import time
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
-# Создаем Flask приложение для health checks
-app = Flask(__name__)
+# Простой и надежный health server
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"OK - Paint Bot Running")
+    
+    def log_message(self, format, *args):
+        # Отключаем логирование запросов
+        return
 
-@app.route('/')
-def home():
-    return "🎨 Paint Stock Bot is running!"
+def start_health_server():
+    """Запускает простой HTTP сервер для health checks"""
+    try:
+        port = int(os.environ.get("PORT", 10000))
+        server = HTTPServer(('0.0.0.0', port), HealthHandler)
+        print(f"🚀 HEALTH SERVER STARTED on port {port}")
+        server.serve_forever()
+    except Exception as e:
+        print(f"❌ Health server failed: {e}")
 
-@app.route('/health')
-def health():
-    return {"status": "ok", "service": "paint-bot"}
-
-def run_flask_app():
-    port = int(os.environ.get("PORT", 10000))
-    print(f"✅ Starting Flask health server on port {port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
-
-# === ЗАПУСК ПРИЛОЖЕНИЯ ===
+# === ГЛАВНЫЙ ЗАПУСК ===
 if __name__ == "__main__":
-    print("🔄 Initializing bot...")
+    print("🔧 INIT: Starting application...")
     
-    # Ждем немного чтобы старые процессы завершились
-    time.sleep(5)
+    # Ждем завершения старых процессов
+    time.sleep(3)
     
-    # ОЧИСТКА WEBHOOK - КРИТИЧЕСКИ ВАЖНО!
+    # Очищаем webhook
     try:
         bot.remove_webhook()
         print("✅ Webhook cleared")
     except Exception as e:
-        print(f"ℹ️ Webhook clear warning: {e}")
+        print(f"⚠️ Webhook clear: {e}")
     
-    # Запускаем Flask в отдельном потоке
-    flask_thread = threading.Thread(target=run_flask_app, daemon=True)
-    flask_thread.start()
+    # ЗАПУСКАЕМ HEALTH SERVER В ОТДЕЛЬНОМ ПОТОКЕ
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
     
-    print("✅ Health server started")
-    print("✅ Starting bot polling...")
+    print("✅ Health server thread started")
+    print("🤖 Starting Telegram bot...")
     
-    # Запускаем бота с обработкой ошибок
+    # Запускаем бота
     try:
         bot.infinity_polling()
     except Exception as e:
-        print(f"❌ Bot error: {e}")
-        print("🔄 Restarting in 10 seconds...")
-        time.sleep(10)
+        print(f"❌ Bot crashed: {e}")
+        print("🔄 Restarting in 5 seconds...")
+        time.sleep(5)
         bot.infinity_polling()
