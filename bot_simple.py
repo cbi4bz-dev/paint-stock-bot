@@ -4,6 +4,7 @@ import sqlite3
 import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
+from telebot import types
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -18,7 +19,7 @@ if not BOT_TOKEN:
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Простой Health Server для Render
+# Health Server для Render
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -26,7 +27,7 @@ class HealthHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"OK - Paint Bot is Running")
     
     def log_message(self, format, *args):
-        pass  # Отключаем логи
+        pass
 
 def start_health_server():
     port = int(os.environ.get("PORT", 10000))
@@ -51,37 +52,129 @@ def init_db():
     conn.close()
     logger.info("✅ Database initialized")
 
+# Создание клавиатуры с кнопками
+def create_main_keyboard():
+    keyboard = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
+    btn_add = types.KeyboardButton('🎨 Добавить краску')
+    btn_list = types.KeyboardButton('📊 Список красок')
+    btn_help = types.KeyboardButton('❓ Помощь')
+    btn_stats = types.KeyboardButton('📈 Статистика')
+    keyboard.add(btn_add, btn_list, btn_help, btn_stats)
+    return keyboard
+
 # Команды бота
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "🎨 Бот для учета краски запущен!\n\nКоманды:\n/add название количество [цвет]\n/list - список красок")
+    keyboard = create_main_keyboard()
+    bot.send_message(
+        message.chat.id,
+        "🎨 **Бот для учета краски**\n\n"
+        "Выберите действие или используйте команды:\n"
+        "• /add - добавить краску\n"
+        "• /list - список красок\n"
+        "• /help - помощь\n\n"
+        "Или просто нажмите на кнопку ниже 👇",
+        reply_markup=keyboard,
+        parse_mode='Markdown'
+    )
+
+@bot.message_handler(commands=['help'])
+@bot.message_handler(func=lambda message: message.text == '❓ Помощь')
+def send_help(message):
+    help_text = """
+🎨 **Бот для учета краски - Помощь**
+
+**Команды:**
+• /start - Главное меню
+• /add название количество [цвет] - Добавить краску
+• /list - Показать все краски
+• /help - Эта справка
+
+**Примеры:**
+/add Белая_эмаль 5.0 Белый
+/add Красная_акриловая 3.5 Красный
+
+**Или используйте кнопки ниже 👇**
+"""
+    bot.send_message(message.chat.id, help_text, reply_markup=create_main_keyboard())
 
 @bot.message_handler(commands=['add'])
-def add_paint(message):
+@bot.message_handler(func=lambda message: message.text == '🎨 Добавить краску')
+def add_paint_command(message):
+    msg = bot.send_message(
+        message.chat.id,
+        "📝 **Добавление краски**\n\n"
+        "Введите данные в формате:\n"
+        "`Название Количество [Цвет]`\n\n"
+        "**Пример:**\n"
+        "`Белая_эмаль 5.0 Белый`\n"
+        "`Красная_акриловая 3.5`",
+        parse_mode='Markdown',
+        reply_markup=types.ReplyKeyboardRemove()
+    )
+    bot.register_next_step_handler(msg, process_add_paint)
+
+def process_add_paint(message):
     try:
         parts = message.text.split()
-        if len(parts) >= 3:
-            name = parts[1]
-            quantity = float(parts[2])
-            color = parts[3] if len(parts) > 3 else "Не указан"
+        if len(parts) >= 2:
+            name = parts[0]
+            quantity = float(parts[1])
+            color = parts[2] if len(parts) > 2 else "Не указан"
             
             conn = sqlite3.connect('paints.db')
             cursor = conn.cursor()
-            cursor.execute('''
-                INSERT OR REPLACE INTO paints (name, quantity, color) 
-                VALUES (?, ?, ?)
-            ''', (name, quantity, color))
+            
+            # Проверяем, существует ли уже такая краска
+            cursor.execute('SELECT name FROM paints WHERE name = ?', (name,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # Обновляем количество
+                cursor.execute('UPDATE paints SET quantity = quantity + ? WHERE name = ?', (quantity, name))
+                action = "обновлена"
+            else:
+                # Добавляем новую запись
+                cursor.execute('INSERT INTO paints (name, quantity, color) VALUES (?, ?, ?)', (name, quantity, color))
+                action = "добавлена"
+            
             conn.commit()
             conn.close()
             
-            bot.reply_to(message, f"✅ Добавлено: {name} - {quantity}кг")
-            logger.info(f"➕ Added paint: {name} - {quantity}kg")
+            response = f"✅ Краска **{action}**!\n\n" \
+                      f"**Название:** {name}\n" \
+                      f"**Количество:** {quantity}кг\n" \
+                      f"**Цвет:** {color}"
+            
+            bot.send_message(message.chat.id, response, parse_mode='Markdown', reply_markup=create_main_keyboard())
+            logger.info(f"➕ Paint {action}: {name} - {quantity}kg")
+            
         else:
-            bot.reply_to(message, "❌ Используйте: /add название количество [цвет]")
+            bot.send_message(
+                message.chat.id,
+                "❌ **Неверный формат!**\n\n"
+                "Используйте: `Название Количество [Цвет]`\n"
+                "**Пример:** `Белая_эмаль 5.0 Белый`",
+                parse_mode='Markdown',
+                reply_markup=create_main_keyboard()
+            )
+    except ValueError:
+        bot.send_message(
+            message.chat.id,
+            "❌ **Ошибка!** Количество должно быть числом.\n\n"
+            "**Пример:** `Белая_эмаль 5.0`",
+            parse_mode='Markdown',
+            reply_markup=create_main_keyboard()
+        )
     except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {e}")
+        bot.send_message(
+            message.chat.id,
+            f"❌ **Ошибка:** {str(e)}",
+            reply_markup=create_main_keyboard()
+        )
 
 @bot.message_handler(commands=['list'])
+@bot.message_handler(func=lambda message: message.text == '📊 Список красок')
 def list_paints(message):
     try:
         conn = sqlite3.connect('paints.db')
@@ -91,24 +184,60 @@ def list_paints(message):
         conn.close()
         
         if paints:
-            response = "📊 Список красок:\n\n"
+            total_quantity = sum(paint[1] for paint in paints)
+            response = f"📊 **Список красок**\n\n"
+            
             for name, quantity, color in paints:
-                response += f"• {name}: {quantity}кг ({color})\n"
+                response += f"• **{name}**: {quantity}кг ({color})\n"
+            
+            response += f"\n**Всего:** {len(paints)} позиций, {total_quantity}кг"
         else:
-            response = "📭 Список красок пуст"
+            response = "📭 **Список красок пуст**\n\nИспользуйте кнопку '🎨 Добавить краску'"
         
-        bot.reply_to(message, response)
+        bot.send_message(message.chat.id, response, parse_mode='Markdown', reply_markup=create_main_keyboard())
     except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {e}")
+        bot.send_message(message.chat.id, f"❌ **Ошибка:** {str(e)}", reply_markup=create_main_keyboard())
+
+@bot.message_handler(commands=['stats'])
+@bot.message_handler(func=lambda message: message.text == '📈 Статистика')
+def show_stats(message):
+    try:
+        conn = sqlite3.connect('paints.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*), SUM(quantity) FROM paints')
+        result = cursor.fetchone()
+        conn.close()
+        
+        count = result[0] or 0
+        total = result[1] or 0
+        
+        stats_text = f"📈 **Статистика склада**\n\n" \
+                    f"• **Всего позиций:** {count}\n" \
+                    f"• **Общее количество:** {total}кг\n" \
+                    f"• **Среднее на позицию:** {total/count:.1f}кг" if count > 0 else "0кг"
+        
+        bot.send_message(message.chat.id, stats_text, parse_mode='Markdown', reply_markup=create_main_keyboard())
+    except Exception as e:
+        bot.send_message(message.chat.id, f"❌ **Ошибка:** {str(e)}", reply_markup=create_main_keyboard())
+
+# Обработка обычных сообщений
+@bot.message_handler(func=lambda message: True)
+def handle_all_messages(message):
+    if message.text not in ['🎨 Добавить краску', '📊 Список красок', '❓ Помощь', '📈 Статистика']:
+        bot.send_message(
+            message.chat.id,
+            "🤔 Не понимаю команду. Используйте кнопки или /help для справки.",
+            reply_markup=create_main_keyboard()
+        )
 
 # Запуск приложения
 if __name__ == "__main__":
-    logger.info("🚀 Starting Paint Stock Bot...")
+    logger.info("🚀 Starting Paint Stock Bot with buttons...")
     
     # Инициализация БД
     init_db()
     
-    # Очистка webhook (важно для избежания конфликтов)
+    # Очистка webhook
     try:
         bot.remove_webhook()
         logger.info("✅ Webhook cleared")
